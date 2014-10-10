@@ -41,7 +41,9 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 	protected int requestCode;
 	protected int recoveryRequestCode;
 	protected KrollFunction resultCallback;
-	private static final String SCOPE = "oauth2:https://www.googleapis.com/auth/userinfo.profile";
+	// private static final String SCOPE =
+	// "oauth2:https://www.googleapis.com/auth/userinfo.profile";
+	private static final String SCOPE = "oauth2:profile email";
 	String mEmail;
 
 	// picker is closed without choosing an account

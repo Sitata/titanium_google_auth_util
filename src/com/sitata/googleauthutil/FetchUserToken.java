@@ -68,7 +68,7 @@ public class FetchUserToken extends AsyncTask{
      */
     protected String fetchToken() throws IOException {
         try {
-            return GoogleAuthUtil.getToken(mActivity, mEmail, mScope);
+			return GoogleAuthUtil.getToken(mActivity, mEmail, mScope);
 		} catch (GooglePlayServicesAvailabilityException playEx) {
 			Logger.getLogger(TAG).info(
 					"Google Play Exception: " + playEx.getMessage());
