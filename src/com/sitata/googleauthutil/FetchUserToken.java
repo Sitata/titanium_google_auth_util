@@ -6,6 +6,7 @@ import java.util.logging.Logger;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.AsyncTask;
+import android.util.Log;
 
 import com.google.android.gms.auth.GoogleAuthException;
 import com.google.android.gms.auth.GoogleAuthUtil;
@@ -45,7 +46,7 @@ public class FetchUserToken extends AsyncTask{
     @Override
 	protected Object doInBackground(Object... arg0) {
         try {
-			Logger.getLogger(TAG).info("Fetching token from google.");
+
             String token = fetchToken();
             if (token != null) {
 				Logger.getLogger(TAG).info(
@@ -68,6 +69,8 @@ public class FetchUserToken extends AsyncTask{
      */
     protected String fetchToken() throws IOException {
         try {
+			Log.d(TAG, "Fetching token from google using accountId: '" + mEmail
+					+ "' and scope: '" + mScope + "'.");
 			return GoogleAuthUtil.getToken(mActivity, mEmail, mScope);
 		} catch (GooglePlayServicesAvailabilityException playEx) {
 			Logger.getLogger(TAG).info(
@@ -79,9 +82,9 @@ public class FetchUserToken extends AsyncTask{
 							+ userRecoverableException.getMessage());
 			mParent.handleRecoverableException(userRecoverableException
 					.getIntent());
-        } catch (GoogleAuthException fatalException) {
+		} catch (GoogleAuthException authException) {
 			Logger.getLogger(TAG).info(
-					"Fatal Exception: " + fatalException.getMessage());
+					"GoogleAuth Exception: " + authException.getMessage());
 			mParent.handleTokenError(TitaniumGoogleAuthUtilModule.FATAL_EXCEPTION);
         }
         return null;

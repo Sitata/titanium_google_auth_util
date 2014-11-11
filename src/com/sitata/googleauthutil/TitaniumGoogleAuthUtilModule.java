@@ -43,7 +43,8 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 	protected KrollFunction resultCallback;
 	// private static final String SCOPE =
 	// "oauth2:https://www.googleapis.com/auth/userinfo.profile";
-	private static final String SCOPE = "oauth2:profile email";
+	// private static final String SCOPE = "oauth2:profile email";
+	String mScope;
 	String mEmail;
 
 	// picker is closed without choosing an account
@@ -95,21 +96,16 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 
 	}
 
-	// Properties
-	// @Kroll.getProperty
-	// public String getExampleProp()
-	// {
-	// Log.d(TAG, "get example property");
-	// return "hello world";
-	// }
-	//
-	//
-	// @Kroll.setProperty
-	// public void setExampleProp(String value) {
-	// Log.d(TAG, "set example property: " + value);
-	// }
+	@Kroll.getProperty @Kroll.method
+	public void setScope(String value)
+	{
+		mScope = value;
+	}
 
-
+	@Kroll.getProperty @Kroll.method
+	public String getScope() {
+		return mScope;
+	}
 
 	@Override
 	public void onError(Activity activity, int requestCode, Exception e) {
@@ -192,8 +188,9 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 		if (mEmail == null) {
 			handleError(NO_EMAIL);
 		} else {
-			new FetchUserToken(TiApplication.getAppCurrentActivity(), mEmail,
-					SCOPE, this).execute();
+			FetchUserToken ft = new FetchUserToken(TiApplication.getAppCurrentActivity(), mEmail,
+					mScope, this);
+			ft.execute();
 		}
 	}
 
