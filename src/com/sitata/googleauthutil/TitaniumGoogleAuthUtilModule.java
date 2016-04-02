@@ -8,9 +8,11 @@
  */
 package com.sitata.googleauthutil;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.logging.Logger;
 
+import org.appcelerator.kroll.KrollDict;
 import org.appcelerator.kroll.KrollFunction;
 import org.appcelerator.kroll.KrollModule;
 import org.appcelerator.kroll.annotations.Kroll;
@@ -22,17 +24,21 @@ import android.accounts.AccountManager;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.text.TextUtils;
+import android.util.Log;
 
+import com.google.android.gms.auth.GoogleAuthException;
 import com.google.android.gms.auth.GoogleAuthUtil;
 import com.google.android.gms.auth.GooglePlayServicesAvailabilityException;
+import com.google.android.gms.auth.UserRecoverableAuthException;
 import com.google.android.gms.common.AccountPicker;
 import com.google.android.gms.common.GooglePlayServicesUtil;
-import com.sitata.googleauthutil.FetchUserToken.UserTokenHandler;
 
 @Kroll.module(name = "TitaniumGoogleAuthUtil", id = "com.sitata.googleauthutil")
 public class TitaniumGoogleAuthUtilModule extends KrollModule implements
-		TiActivityResultHandler, UserTokenHandler
+		TiActivityResultHandler
 {
 	static final int REQUEST_CODE_PICK_ACCOUNT = 1000;
 
@@ -40,12 +46,14 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 	private static final String TAG = "TiGoogleAuthUtilModule";
 	protected int requestCode;
 	protected int recoveryRequestCode;
-	protected KrollFunction resultCallback;
 	// private static final String SCOPE =
 	// "oauth2:https://www.googleapis.com/auth/userinfo.profile";
 	// private static final String SCOPE = "oauth2:profile email";
-	String mScope;
-	String mEmail;
+	private String[] mScopes;
+	private String mEmail;
+	private String mServerId;
+	private KrollFunction successCallback;
+	private KrollFunction errorCallback;
 
 	// picker is closed without choosing an account
 	@Kroll.constant
@@ -71,6 +79,7 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 	public TitaniumGoogleAuthUtilModule()
 	{
 		super();
+		mScopes = new String[]{""};
 	}
 
 	@Kroll.onAppCreate
@@ -81,9 +90,15 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 
 	// Methods
 	@Kroll.method
-	public void pickUserAccount(KrollFunction handler)
+	public void signin(KrollDict props)
 	{
-		this.resultCallback = handler;
+		if (props.containsKey("success")) {
+			successCallback = (KrollFunction) props.get("success");
+		}
+		if (props.containsKey("error")) {
+			errorCallback = (KrollFunction) props.get("error");
+		}
+		
 
 		String[] accountTypes = new String[] { GoogleAuthUtil.GOOGLE_ACCOUNT_TYPE };
 		Intent intent = AccountPicker.newChooseAccountIntent(null, null,
@@ -97,14 +112,25 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 	}
 
 	@Kroll.getProperty @Kroll.method
-	public void setScope(String value)
+	public void setServerId(String value)
 	{
-		mScope = value;
+		mServerId = value;
 	}
 
 	@Kroll.getProperty @Kroll.method
-	public String getScope() {
-		return mScope;
+	public String getServerId() {
+		return mServerId;
+	}
+
+	@Kroll.getProperty @Kroll.method
+	public void setScopes(String[] value)
+	{
+		mScopes = value;
+	}
+
+	@Kroll.getProperty @Kroll.method
+	public String[] getScopes() {
+		return mScopes;
 	}
 
 	@Override
@@ -119,7 +145,7 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 		Logger.getLogger(TAG).info(
 				"On Result - Request Code is:" + thisRequestCode);
 
-		if (resultCallback == null)
+		if (errorCallback == null || successCallback == null)
 			return;
 
 		if (thisRequestCode == requestCode) {
@@ -141,25 +167,23 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 			if (resultCode == Activity.RESULT_OK) {
 				Bundle extra = data.getExtras();
 				String oneTimeToken = extra.getString("authtoken");
-				handleToken(mEmail, oneTimeToken);
+				handleSignInSuccess(mEmail, oneTimeToken);
 			}
 		}
 	}
 
-	@Override
-	public void handleToken(String email, String token) {
+	private void handleSignInSuccess(String email, String token) {
 		HashMap<String, String> event = new HashMap<String, String>();
-		event.put("email", mEmail);
-		event.put("token", token);
-		resultCallback.call(getKrollObject(), event);
+		event.put("accountId", email);
+		event.put("accessToken", token);
+		successCallback.call(getKrollObject(), event);
+
 	}
 
-	@Override
 	public void handleTokenError(String errorCode) {
 		handleError(errorCode);
 	}
 
-	@Override
 	public void handleRecoverableException(Intent recoveryIntent) {
 		Logger.getLogger(TAG).info("Launchng recoverable intent.");
 
@@ -174,7 +198,6 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 
 	// Google play is probably not available
 	// TODO: Test this...
-	@Override
 	public void handleGooglePlayException(
 			GooglePlayServicesAvailabilityException playEx) {
 		// Use the dialog to present to the user.
@@ -188,16 +211,93 @@ public class TitaniumGoogleAuthUtilModule extends KrollModule implements
 		if (mEmail == null) {
 			handleError(NO_EMAIL);
 		} else {
-			FetchUserToken ft = new FetchUserToken(TiApplication.getAppCurrentActivity(), mEmail,
-					mScope, this);
-			ft.execute();
+			String scopeStr = TextUtils.join(" ", mScopes);
+			
+			FetchUserTokenTask task = new FetchUserTokenTask(TiApplication.getAppCurrentActivity(), 
+					mEmail, scopeStr, mServerId);
+			task.execute();
 		}
 	}
 
 	private void handleError(String code) {
 		HashMap<String, String> event = new HashMap<String, String>();
 		event.put("error", code);
-		resultCallback.call(getKrollObject(), event);
+		errorCallback.call(getKrollObject(), event);
+	}
+	
+	
+	
+	public class FetchUserTokenTask extends AsyncTask {
+		Activity mActivity;
+		String mScope;
+		String mEmail;
+		String mServerId;
+		private static final String TAG = "TiGoogleAuthUtilModule";
+
+		FetchUserTokenTask(Activity activity, String name, String scope, String serverId) {
+			this.mActivity = activity;
+			this.mScope = scope;
+			this.mEmail = name;
+			this.mServerId = serverId;
+		}
+
+		/**
+		 * Executes the asynchronous job. This runs when you call execute() on
+		 * the AsyncTask instance.
+		 */
+		@Override
+		protected Object doInBackground(Object... arg0) {
+			try {
+				String token = fetchToken();
+				if (token != null) {
+					Log.d(TAG,
+							"Found token for email: " + mEmail + " - " + token);
+					handleSignInSuccess(mEmail, token);
+				}
+			} catch (IOException e) {
+				// The fetchToken() method handles Google-specific exceptions,
+				// so this indicates something went wrong at a higher level.
+				// TIP: Check for network connectivity before starting the
+				// AsyncTask.
+				Log.d(TAG, "IOException: " + e.getMessage());
+				handleError(IO_EXCEPTION);
+			}
+			return null;
+		}
+
+		/**
+		 * Gets an authentication token from Google and handles any
+		 * GoogleAuthException that may occur.
+		 */
+		protected String fetchToken() throws IOException {
+			try {
+				Log.d(TAG,
+						"Fetching token from google using account: '" + mEmail
+								+ "' and scope: '" + mScope + "'.");
+				
+				// Not the app's client ID.
+				String scopes = "oauth2:server:client_id:" + mServerId + ":api_scope:" + mScope; 
+				
+				Log.d(TAG, "Total scope: " + scopes);
+				return GoogleAuthUtil.getToken(mActivity, mEmail, scopes);
+			} catch (GooglePlayServicesAvailabilityException playEx) {
+				Logger.getLogger(TAG).info(
+						"Google Play Exception: " + playEx.getMessage());
+				handleGooglePlayException(playEx);
+			} catch (UserRecoverableAuthException userRecoverableException) {
+				Logger.getLogger(TAG).info(
+						"User Recoverable Exception: "
+								+ userRecoverableException.getMessage());
+				handleRecoverableException(userRecoverableException
+						.getIntent());
+			} catch (GoogleAuthException fatalException) {
+				Logger.getLogger(TAG).info(
+						"Fatal Exception: " + fatalException.getMessage());
+				handleError(FATAL_EXCEPTION);
+			}
+			return null;
+		}
+
 	}
 
 
